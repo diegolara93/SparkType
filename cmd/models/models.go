@@ -1,13 +1,14 @@
 package models
 
 import (
+	"image/color"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/common-nighthawk/go-figure"
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/muesli/gamut"
-	"image/color"
 )
 
 var textStyle = lipgloss.NewStyle().
@@ -40,6 +41,7 @@ func InitialModel() Model {
 func (m Model) Init() tea.Cmd {
 	return textinput.Blink
 }
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
@@ -50,8 +52,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.TextInput.Width = msg.Width
-		m.homeScreenMarginLR = msg.Width / 3
-		m.homeScreenMarginUB = msg.Height / 16
+		m.homeScreenMarginLR = msg.Width
+		m.homeScreenMarginUB = msg.Height / 5
 	}
 	m.TextInput, cmd = m.TextInput.Update(msg)
 	return m, cmd
@@ -69,20 +71,31 @@ func (m Model) View() string {
 	} else if m.ChosenView == 1 {
 		s := HomeView(m)
 		return s
+	} else if m.ChosenView == 2 {
+		return m.settingsView()
 	}
 	return "view3"
 }
 
 func HomeView(m Model) string {
 	blends := gamut.Blends(lipgloss.Color("#F25D94"), lipgloss.Color("#EDFF82"), 75)
-	s := lipgloss.NewStyle().Margin(m.homeScreenMarginUB, m.homeScreenMarginLR, m.homeScreenMarginUB/3, m.homeScreenMarginLR)
-	j := figure.NewFigure("SparkType!", "", true)
-	d := rainbow(textStyle, j.String(), blends)
+	borderStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()) //.Margin(m.homeScreenMarginUB, m.homeScreenMarginLR/4, m.homeScreenMarginUB/4, m.homeScreenMarginLR/3).Border(lipgloss.NormalBorder())
+	asciiFigure := figure.NewFigure("SparkType!", "", true)
+	asciiFigureRainbow := rainbow(textStyle, asciiFigure.String(), blends)
+	tempStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFFF")).Bold(true)
+	info := tempStyle.Render("A terminal-based typing game made with Go")
 	g := textStyle.Render("Start Typing!")
 	t := textStyle.Render("My Records")
 	settings := textStyle.Render("Settings")
-	n := lipgloss.JoinVertical(lipgloss.Center, s.Render(d), g, t, settings)
-	return n
+	n := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Center, borderStyle.Render(asciiFigureRainbow))
+	view := lipgloss.JoinVertical(lipgloss.Center, n, info, g, t, settings)
+	return view
+}
+
+func (m Model) settingsView() string {
+	s := textStyle.Render("Customize the settings of the typing game here:")
+	c := textStyle.Render("Periods and SemiColons: ")
+	return lipgloss.JoinVertical(lipgloss.Center, s, c)
 }
 
 func rainbow(base lipgloss.Style, s string, colors []color.Color) string {
