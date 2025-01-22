@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,13 +16,35 @@ import (
 	"github.com/muesli/gamut"
 )
 
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
 var textStyle = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(lipgloss.Color("#EDFF82"))
 
+var untypedText = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("#FFF")).
+	Underline(true)
+
+var typedText = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("#EDFF82"))
+
+var wrongText = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("#8a0101"))
+
 type Model struct {
 	TextInput          textinput.Model
-	Words              []rune
+	Keys               []rune
+	TypedKeys          []rune
 	ChosenView         int32
 	homeScreenMarginLR int
 	homeScreenMarginUB int
@@ -73,8 +96,9 @@ func InitialModel() Model {
 	viewsList.SetShowPagination(false)
 	return Model{
 		TextInput:          ti,
-		Words:              []rune{'a', 'b', 'c'},
-		ChosenView:         1,
+		Keys:               []rune{'a', 'b', 'c', 'd', 'e', 'f'},
+		TypedKeys:          []rune{},
+		ChosenView:         0,
 		homeScreenMarginLR: 0,
 		homeScreenMarginUB: 0,
 		viewList:           viewsList,
@@ -82,43 +106,117 @@ func InitialModel() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+
+	return tea.Batch(tick(), textinput.Blink)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
+	if m.ChosenView == 0 { // Home view update layout
+		var cmd tea.Cmd
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			case "enter":
+				_, ok := m.viewList.SelectedItem().(item)
+				if ok {
+					m.ChosenView = int32(m.viewList.Index() + 1)
+				}
+				return m, cmd
+			}
+		case tea.WindowSizeMsg:
+			m.TextInput.Width = msg.Width
+			m.homeScreenMarginLR = msg.Width
+			m.homeScreenMarginUB = msg.Height / 8
+
 		}
-	case tea.WindowSizeMsg:
-		m.TextInput.Width = msg.Width
-		m.homeScreenMarginLR = msg.Width
-		m.homeScreenMarginUB = msg.Height / 8
+		m.TextInput, cmd = m.TextInput.Update(msg)
+		m.viewList, cmd = m.viewList.Update(msg)
+		return m, cmd
+	} else { // Other view layout
+		var cmd tea.Cmd
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			}
+			// Deleting characters
+
+			if len(m.TypedKeys) == len(m.Keys) && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
+				m.ChosenView = 0
+				m.TypedKeys = []rune{} // Clear the typed keys after finishing
+				return m, nil
+			}
+			if msg.Type == tea.KeyBackspace && len(m.TypedKeys) > 0 {
+				m.TypedKeys = m.TypedKeys[:len(m.TypedKeys)-1]
+				return m, nil
+			}
+
+			// Ensure we are adding characters only that we want the user to be able to type
+			if msg.Type != tea.KeyRunes {
+				return m, nil
+			}
+
+			char := msg.Runes[0]
+			next := rune(m.Keys[len(m.TypedKeys)])
+
+			// To properly account for line wrapping we need to always insert a new line
+			// Where the next line starts to not break the user interface, even if the user types a random character
+			if next == '\n' {
+				m.TypedKeys = append(m.TypedKeys, next)
+
+				// Since we need to perform a line break
+				// if the user types a space we should simply ignore it.
+				if char == ' ' {
+					return m, nil
+				}
+			}
+
+			m.TypedKeys = append(m.TypedKeys, msg.Runes...)
+		}
+		return m, cmd
 	}
-	m.TextInput, cmd = m.TextInput.Update(msg)
-	m.viewList, cmd = m.viewList.Update(msg)
-	return m, cmd
 }
 
 func (m Model) View() string {
-	if m.ChosenView == 0 {
-		s := ""
-		for _, words := range m.Words {
-			s += textStyle.Render(string(words)) + " "
-		}
-		s += "\n" + m.TextInput.View() + ""
-		s += "\n"
-		return s
-	} else if m.ChosenView == 1 {
+	if m.ChosenView == 0 { // Home view
 		s := HomeView(m)
 		return s
-	} else if m.ChosenView == 2 {
+	} else if m.ChosenView == 1 { // Typing game view
+		s := typeView(m)
+		return s
+	} else if m.ChosenView == 2 { // Settings view
 		return m.settingsView()
 	}
 	return "view3"
+}
+
+func typeView(m Model) string {
+	remaining := m.Keys[len(m.TypedKeys):]
+	var typed string
+	for i, c := range m.TypedKeys {
+		if c == rune(m.Keys[i]) {
+			typed += typedText.Render(string(c))
+		} else {
+			typed += wrongText.Render(string(m.Keys[i]))
+		}
+	}
+
+	s := fmt.Sprintf(
+		"%s",
+		typed,
+	)
+	if len(remaining) > 0 {
+		s += string(remaining[:1])
+		s += string(remaining[1:])
+	}
+	if len(remaining) == 0 && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
+		return HomeView(m)
+	}
+	return s
 }
 
 func HomeView(m Model) string {
