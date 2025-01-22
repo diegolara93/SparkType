@@ -39,7 +39,8 @@ var typedText = lipgloss.NewStyle().
 
 var wrongText = lipgloss.NewStyle().
 	Bold(true).
-	Foreground(lipgloss.Color("#8a0101"))
+	Foreground(lipgloss.Color("#8a0101")).
+	Underline(true)
 
 type Model struct {
 	TextInput          textinput.Model
@@ -96,7 +97,7 @@ func InitialModel() Model {
 	viewsList.SetShowPagination(false)
 	return Model{
 		TextInput:          ti,
-		Keys:               []rune{'a', 'b', 'c', 'd', 'e', 'f'},
+		Keys:               []rune{'a', 'b', 'c', 'd', 'e', 'f', 'd', ' ', 'd', 'o', 'g', ' ', 't'},
 		TypedKeys:          []rune{},
 		ChosenView:         0,
 		homeScreenMarginLR: 0,
@@ -138,18 +139,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
-			switch msg.String() {
+			switch msg.String() { // change this to be the typing view update
 
 			case "ctrl+c", "q":
 				return m, tea.Quit
 			}
-			// Deleting characters
+			/*
+				If the length of the typed keys equals the length of the keys and the last key is the correct key, quit,
+				TODO: add a popup after finishing showing wpm, accuracy, etc.
+			*/
 
 			if len(m.TypedKeys) == len(m.Keys) && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
 				m.ChosenView = 0
 				m.TypedKeys = []rune{} // Clear the typed keys after finishing
 				return m, nil
 			}
+			// Deleting characters
 			if msg.Type == tea.KeyBackspace && len(m.TypedKeys) > 0 {
 				m.TypedKeys = m.TypedKeys[:len(m.TypedKeys)-1]
 				return m, nil
@@ -183,7 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	if m.ChosenView == 0 { // Home view
-		s := HomeView(m)
+		s := homeView(m)
 		return s
 	} else if m.ChosenView == 1 { // Typing game view
 		s := typeView(m)
@@ -191,7 +196,7 @@ func (m Model) View() string {
 	} else if m.ChosenView == 2 { // Settings view
 		return m.settingsView()
 	}
-	return "view3"
+	return "temp view"
 }
 
 func typeView(m Model) string {
@@ -214,12 +219,13 @@ func typeView(m Model) string {
 		s += string(remaining[1:])
 	}
 	if len(remaining) == 0 && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
-		return HomeView(m)
+		return homeView(m)
 	}
-	return s
+	text := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, s)
+	return text
 }
 
-func HomeView(m Model) string {
+func homeView(m Model) string {
 	blends := gamut.Blends(lipgloss.Color("#F25D94"), lipgloss.Color("#EDFF82"), 75)
 	borderStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()) //.Margin(m.homeScreenMarginUB, m.homeScreenMarginLR/4, m.homeScreenMarginUB/4, m.homeScreenMarginLR/3).Border(lipgloss.NormalBorder())
 	asciiFigure := figure.NewFigure("SparkType!", "", true)
@@ -239,9 +245,16 @@ func HomeView(m Model) string {
 }
 
 func (m Model) settingsView() string {
+	// TODO: make the selection a list have a seperate settingsUpdate()
 	s := textStyle.Render("Customize the settings of the typing game here:")
 	c := textStyle.Render("Periods and SemiColons: ")
-	return lipgloss.JoinVertical(lipgloss.Center, s, c)
+	e := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, s)
+	return lipgloss.JoinVertical(lipgloss.Center, e, c)
+}
+
+func (m Model) settingsUpdate() (tea.Model, tea.Cmd) {
+	// TODO: add stuff here for the settings update
+	return m, nil
 }
 
 func rainbow(base lipgloss.Style, s string, colors []color.Color) string {
