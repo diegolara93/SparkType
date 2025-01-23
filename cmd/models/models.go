@@ -32,7 +32,7 @@ var textStyle = lipgloss.NewStyle().
 
 var textBox = lipgloss.NewStyle().
 	Border(lipgloss.NormalBorder()).
-	BorderForeground(lipgloss.Color("#FFFDF5"))
+	BorderForeground(lipgloss.Color("#9c14db"))
 
 var typedText = lipgloss.NewStyle().
 	Bold(true).
@@ -44,6 +44,9 @@ var wrongText = lipgloss.NewStyle().
 	Underline(true)
 
 type typingSettings struct {
+	amountOfWords int
+	punctuation   bool
+	numbers       bool
 }
 type Model struct {
 	TextInput          textinput.Model
@@ -101,7 +104,7 @@ func InitialModel() Model {
 	viewsList.SetShowPagination(false)
 	return Model{
 		TextInput:          ti,
-		Keys:               []rune(utils.GenerateWord(30)),
+		Keys:               []rune(utils.GenerateWord(20)),
 		TypedKeys:          []rune{},
 		ChosenView:         0,
 		homeScreenMarginLR: 0,
@@ -116,34 +119,40 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.ChosenView == 0 { // Home view update layout
-		var cmd tea.Cmd
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "ctrl+c", "q":
-				return m, tea.Quit
-			case "enter":
-				_, ok := m.viewList.SelectedItem().(item)
-				if ok {
-					m.ChosenView = int32(m.viewList.Index() + 1)
-				}
-				return m, cmd
-			}
-		case tea.WindowSizeMsg:
-			m.TextInput.Width = msg.Width
-			m.homeScreenMarginLR = msg.Width
-			m.homeScreenMarginUB = msg.Height / 8
-
-		}
-		m.TextInput, cmd = m.TextInput.Update(msg)
-		m.viewList, cmd = m.viewList.Update(msg)
-		return m, cmd
-	} else if m.ChosenView == 1 { // Other view layout
+	switch m.ChosenView {
+	case 0:
+		return m.homeUpdate(msg)
+	case 1:
 		return m.typerUpdate(msg)
-	} else {
-		return m, nil
+	case 2:
+		return m.settingsUpdate()
 	}
+	return m, nil
+}
+
+func (m Model) homeUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "enter":
+			_, ok := m.viewList.SelectedItem().(item)
+			if ok {
+				m.ChosenView = int32(m.viewList.Index() + 1)
+			}
+			return m, cmd
+		}
+	case tea.WindowSizeMsg:
+		m.TextInput.Width = msg.Width
+		m.homeScreenMarginLR = msg.Width
+		m.homeScreenMarginUB = msg.Height / 8
+
+	}
+	m.TextInput, cmd = m.TextInput.Update(msg)
+	m.viewList, cmd = m.viewList.Update(msg)
+	return m, cmd
 }
 
 func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -171,8 +180,8 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Ensure we are adding characters only that we want the user to be able to type
-		if msg.Type != tea.KeyRunes {
+		// CHECKING FOR TEA.KEYSPACE ALLOWS MACOS AND SSH TO DETECT SPACE, WITHOUT IT, IT DOESN'T PICK IT UP
+		if msg.Type != tea.KeyRunes && msg.Type != tea.KeySpace {
 			return m, nil
 		}
 
@@ -235,7 +244,7 @@ func typeView(m Model) string {
 	if len(remaining) == 0 && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
 		return homeView(m)
 	}
-	text := textBox.Render(ansi.Wordwrap(s, 60, "\n"))
+	text := textBox.Render(ansi.Wordwrap(s, 120, "\n"))
 	textBox := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, text)
 	return textBox
 }
@@ -257,6 +266,14 @@ func homeView(m Model) string {
 	//view := lipgloss.JoinVertical(lipgloss.Center, n, info, g, t, settings, warning)
 	view := lipgloss.JoinVertical(lipgloss.Center, n, m.viewList.View(), warning)
 	return view
+}
+
+func (m Model) recordsView() string {
+	return "Your highest scores:"
+}
+
+func (m Model) recordsUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return m, nil
 }
 
 func (m Model) settingsView() string {
