@@ -3,11 +3,13 @@ package models
 import (
 	"fmt"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/x/ansi"
 	"image/color"
 	"io"
 	"strings"
 	"time"
 
+	"SparkType/cmd/utils"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -28,10 +30,9 @@ var textStyle = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(lipgloss.Color("#EDFF82"))
 
-var untypedText = lipgloss.NewStyle().
-	Bold(true).
-	Foreground(lipgloss.Color("#FFF")).
-	Underline(true)
+var textBox = lipgloss.NewStyle().
+	Border(lipgloss.NormalBorder()).
+	BorderForeground(lipgloss.Color("#FFFDF5"))
 
 var typedText = lipgloss.NewStyle().
 	Bold(true).
@@ -42,6 +43,8 @@ var wrongText = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#8a0101")).
 	Underline(true)
 
+type typingSettings struct {
+}
 type Model struct {
 	TextInput          textinput.Model
 	Keys               []rune
@@ -50,6 +53,7 @@ type Model struct {
 	homeScreenMarginLR int
 	homeScreenMarginUB int
 	viewList           list.Model
+	settings           typingSettings
 }
 type item string
 
@@ -97,7 +101,7 @@ func InitialModel() Model {
 	viewsList.SetShowPagination(false)
 	return Model{
 		TextInput:          ti,
-		Keys:               []rune{'a', 'b', 'c', 'd', 'e', 'f', 'd', ' ', 'd', 'o', 'g', ' ', 't'},
+		Keys:               []rune(utils.GenerateWord(30)),
 		TypedKeys:          []rune{},
 		ChosenView:         0,
 		homeScreenMarginLR: 0,
@@ -135,55 +139,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.TextInput, cmd = m.TextInput.Update(msg)
 		m.viewList, cmd = m.viewList.Update(msg)
 		return m, cmd
-	} else { // Other view layout
-		var cmd tea.Cmd
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() { // change this to be the typing view update
+	} else if m.ChosenView == 1 { // Other view layout
+		return m.typerUpdate(msg)
+	} else {
+		return m, nil
+	}
+}
 
-			case "ctrl+c", "q":
-				return m, tea.Quit
-			}
-			/*
-				If the length of the typed keys equals the length of the keys and the last key is the correct key, quit,
-				TODO: add a popup after finishing showing wpm, accuracy, etc.
-			*/
+func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() { // change this to be the typing view update
 
-			if len(m.TypedKeys) == len(m.Keys) && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
-				m.ChosenView = 0
-				m.TypedKeys = []rune{} // Clear the typed keys after finishing
-				return m, nil
-			}
-			// Deleting characters
-			if msg.Type == tea.KeyBackspace && len(m.TypedKeys) > 0 {
-				m.TypedKeys = m.TypedKeys[:len(m.TypedKeys)-1]
-				return m, nil
-			}
-
-			// Ensure we are adding characters only that we want the user to be able to type
-			if msg.Type != tea.KeyRunes {
-				return m, nil
-			}
-
-			char := msg.Runes[0]
-			next := rune(m.Keys[len(m.TypedKeys)])
-
-			// To properly account for line wrapping we need to always insert a new line
-			// Where the next line starts to not break the user interface, even if the user types a random character
-			if next == '\n' {
-				m.TypedKeys = append(m.TypedKeys, next)
-
-				// Since we need to perform a line break
-				// if the user types a space we should simply ignore it.
-				if char == ' ' {
-					return m, nil
-				}
-			}
-
-			m.TypedKeys = append(m.TypedKeys, msg.Runes...)
+		case "ctrl+c", "q":
+			return m, tea.Quit
 		}
+		/*
+			If the length of the typed keys equals the length of the keys and the last key is the correct key, quit,
+			TODO: add a popup after finishing showing wpm, accuracy, etc.
+		*/
+
+		if len(m.TypedKeys) == len(m.Keys) && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
+			m.ChosenView = 0
+			m.TypedKeys = []rune{} // Clear the typed keys after finishing
+			return m, nil
+		}
+		// Deleting characters
+		if msg.Type == tea.KeyBackspace && len(m.TypedKeys) > 0 {
+			m.TypedKeys = m.TypedKeys[:len(m.TypedKeys)-1]
+			return m, nil
+		}
+
+		// Ensure we are adding characters only that we want the user to be able to type
+		if msg.Type != tea.KeyRunes {
+			return m, nil
+		}
+
+		char := msg.Runes[0]
+		next := rune(m.Keys[len(m.TypedKeys)])
+
+		// To properly account for line wrapping we need to always insert a new line
+		// Where the next line starts to not break the user interface, even if the user types a random character
+		if next == '\n' {
+			m.TypedKeys = append(m.TypedKeys, next)
+
+			// Since we need to perform a line break
+			// if the user types a space we should simply ignore it.
+			if char == ' ' {
+				return m, nil
+			}
+		}
+
+		m.TypedKeys = append(m.TypedKeys, msg.Runes...)
+	case tea.WindowSizeMsg:
+		m.homeScreenMarginLR = msg.Width
+		m.homeScreenMarginUB = msg.Height / 8
 		return m, cmd
 	}
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -221,8 +235,9 @@ func typeView(m Model) string {
 	if len(remaining) == 0 && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
 		return homeView(m)
 	}
-	text := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, s)
-	return text
+	text := textBox.Render(ansi.Wordwrap(s, 60, "\n"))
+	textBox := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, text)
+	return textBox
 }
 
 func homeView(m Model) string {
@@ -246,10 +261,12 @@ func homeView(m Model) string {
 
 func (m Model) settingsView() string {
 	// TODO: make the selection a list have a seperate settingsUpdate()
-	s := textStyle.Render("Customize the settings of the typing game here:")
-	c := textStyle.Render("Periods and SemiColons: ")
-	e := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, s)
-	return lipgloss.JoinVertical(lipgloss.Center, e, c)
+	header := textStyle.Render("Customize the settings of the typing game here:")
+	amountOfWords := textStyle.Render("Amount of Words (Minimum 15, Maximum 150): ")
+	punctuation := textStyle.Render("Punctuation: ")
+	numbers := textStyle.Render("Numbers: ")
+	centered := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top+0.1, header)
+	return lipgloss.JoinVertical(lipgloss.Center, centered, amountOfWords, punctuation, numbers)
 }
 
 func (m Model) settingsUpdate() (tea.Model, tea.Cmd) {

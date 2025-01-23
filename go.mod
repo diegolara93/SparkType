@@ -9,6 +9,7 @@ require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/lucasb-eyer/go-colorful v1.2.0
 	github.com/muesli/gamut v0.3.1
+	github.com/tyler-smith/go-bip39 v1.1.0
 )
 
 require (
