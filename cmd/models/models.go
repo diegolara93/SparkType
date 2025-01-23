@@ -40,13 +40,14 @@ var typedText = lipgloss.NewStyle().
 
 var wrongText = lipgloss.NewStyle().
 	Bold(true).
-	Foreground(lipgloss.Color("#8a0101")).
+	Background(lipgloss.Color("#8a0101")).
 	Underline(true)
 
 type typingSettings struct {
 	amountOfWords int
 	punctuation   bool
 	numbers       bool
+	time          int
 }
 type Model struct {
 	TextInput          textinput.Model
@@ -85,6 +86,15 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fmt.Fprint(w, fn(str))
 }
 
+func initialSettings() typingSettings {
+	return typingSettings{
+		amountOfWords: 15,
+		punctuation:   false,
+		numbers:       false,
+		time:          30,
+	}
+}
+
 func InitialModel() Model {
 	ti := textinput.New()
 	ti.Placeholder = "cat"
@@ -102,14 +112,17 @@ func InitialModel() Model {
 	viewsList.SetShowFilter(false)
 	viewsList.SetShowStatusBar(false)
 	viewsList.SetShowPagination(false)
+
+	settings := initialSettings()
 	return Model{
 		TextInput:          ti,
-		Keys:               []rune(utils.GenerateWord(20)),
+		Keys:               []rune(utils.GenerateWord(10)),
 		TypedKeys:          []rune{},
 		ChosenView:         0,
 		homeScreenMarginLR: 0,
 		homeScreenMarginUB: 0,
 		viewList:           viewsList,
+		settings:           settings,
 	}
 }
 
@@ -125,7 +138,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case 1:
 		return m.typerUpdate(msg)
 	case 2:
-		return m.settingsUpdate()
+		return m.settingsUpdate(msg)
+	case 3:
+		return m.recordsUpdate(msg)
+	case 4:
+		return m.gameOverUpdate(msg)
 	}
 	return m, nil
 }
@@ -161,7 +178,7 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() { // change this to be the typing view update
 
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			return m, tea.Quit
 		}
 		/*
@@ -170,7 +187,7 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		*/
 
 		if len(m.TypedKeys) == len(m.Keys) && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
-			m.ChosenView = 0
+			m.ChosenView = 4
 			m.TypedKeys = []rune{} // Clear the typed keys after finishing
 			return m, nil
 		}
@@ -188,7 +205,7 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		char := msg.Runes[0]
 		next := rune(m.Keys[len(m.TypedKeys)])
 
-		// To properly account for line wrapping we need to always insert a new line
+		// deals with line wrapping
 		// Where the next line starts to not break the user interface, even if the user types a random character
 		if next == '\n' {
 			m.TypedKeys = append(m.TypedKeys, next)
@@ -209,8 +226,8 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) View() string {
-	if m.ChosenView == 0 { // Home view
+func (m Model) View() string { // TODO: Make this a switch statement else-ifs so ugly
+	if m.ChosenView == 0 {     // Home view
 		s := homeView(m)
 		return s
 	} else if m.ChosenView == 1 { // Typing game view
@@ -218,8 +235,12 @@ func (m Model) View() string {
 		return s
 	} else if m.ChosenView == 2 { // Settings view
 		return m.settingsView()
+	} else if m.ChosenView == 3 {
+		return m.recordsView()
+	} else if m.ChosenView == 4 {
+		return m.gameOverView()
 	}
-	return "temp view"
+	return "ERROR: unknown view	"
 }
 
 func typeView(m Model) string {
@@ -242,7 +263,7 @@ func typeView(m Model) string {
 		s += string(remaining[1:])
 	}
 	if len(remaining) == 0 && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
-		return homeView(m)
+		return m.gameOverView()
 	}
 	text := textBox.Render(ansi.Wordwrap(s, 120, "\n"))
 	textBox := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, text)
@@ -286,8 +307,40 @@ func (m Model) settingsView() string {
 	return lipgloss.JoinVertical(lipgloss.Center, centered, amountOfWords, punctuation, numbers)
 }
 
-func (m Model) settingsUpdate() (tea.Model, tea.Cmd) {
+func (m Model) settingsUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// TODO: add stuff here for the settings update
+	//var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) gameOverView() string {
+	text := textBox.Render("Finished! \n" +
+		"Your WPM: \nYour accuracy:  \n" +
+		"Press Enter to go Home")
+
+	centeredText := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB*8, lipgloss.Center, lipgloss.Center, text)
+	return centeredText
+}
+
+func (m Model) gameOverUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "enter":
+			m.ChosenView = 0
+			return m, nil
+		}
+	}
 	return m, nil
 }
 
