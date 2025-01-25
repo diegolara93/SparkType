@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"image/color"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,9 @@ type typingSettings struct {
 	numbers       bool
 	time          int
 }
+
+const charsPerWord = 5
+
 type Model struct {
 	TextInput          textinput.Model
 	Keys               []rune
@@ -58,6 +62,10 @@ type Model struct {
 	homeScreenMarginUB int
 	viewList           list.Model
 	settings           typingSettings
+	timeRemaining      int32
+	score              float64
+	startedTyping      time.Time
+	wpm                float64
 }
 type item string
 
@@ -116,13 +124,17 @@ func InitialModel() Model {
 	settings := initialSettings()
 	return Model{
 		TextInput:          ti,
-		Keys:               []rune(utils.GenerateWord(10)),
+		Keys:               []rune(utils.GenerateWord(30)),
 		TypedKeys:          []rune{},
 		ChosenView:         0,
 		homeScreenMarginLR: 0,
 		homeScreenMarginUB: 0,
 		viewList:           viewsList,
 		settings:           settings,
+		timeRemaining:      10,
+		score:              0,
+		startedTyping:      time.Now(),
+		wpm:                0.,
 	}
 }
 
@@ -176,6 +188,9 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.startedTyping.IsZero() {
+			m.startedTyping = time.Now()
+		}
 		switch msg.String() { // change this to be the typing view update
 
 		case "ctrl+c":
@@ -209,19 +224,38 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Where the next line starts to not break the user interface, even if the user types a random character
 		if next == '\n' {
 			m.TypedKeys = append(m.TypedKeys, next)
-
-			// Since we need to perform a line break
-			// if the user types a space we should simply ignore it.
 			if char == ' ' {
 				return m, nil
 			}
 		}
-
+		if len(m.TypedKeys) >= 1 {
+			m.wpm = (m.score / charsPerWord) / (time.Since(m.startedTyping).Minutes())
+		}
 		m.TypedKeys = append(m.TypedKeys, msg.Runes...)
+		if char == next {
+			m.score += 1.
+		}
 	case tea.WindowSizeMsg:
 		m.homeScreenMarginLR = msg.Width
 		m.homeScreenMarginUB = msg.Height / 8
 		return m, cmd
+
+	case tickMsg:
+		if len(m.TypedKeys) >= 1 {
+			m.timeRemaining -= 1
+			if m.timeRemaining == 0 {
+				m.ChosenView = 4
+				m.TypedKeys = []rune{} // Clear the typed keys after finishing
+				return m, nil
+			}
+			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			})
+		} else {
+			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			})
+		}
 	}
 	return m, nil
 }
@@ -231,7 +265,7 @@ func (m Model) View() string { // TODO: Make this a switch statement else-ifs so
 		s := homeView(m)
 		return s
 	} else if m.ChosenView == 1 { // Typing game view
-		s := typeView(m)
+		s, _ := typeView(m)
 		return s
 	} else if m.ChosenView == 2 { // Settings view
 		return m.settingsView()
@@ -243,8 +277,9 @@ func (m Model) View() string { // TODO: Make this a switch statement else-ifs so
 	return "ERROR: unknown view	"
 }
 
-func typeView(m Model) string {
+func typeView(m Model) (string, tea.Model) {
 	remaining := m.Keys[len(m.TypedKeys):]
+	timeRemaining := textStyle.Render(strconv.Itoa(int(m.timeRemaining)))
 	var typed string
 	for i, c := range m.TypedKeys {
 		if c == rune(m.Keys[i]) {
@@ -262,12 +297,12 @@ func typeView(m Model) string {
 		s += string(remaining[:1])
 		s += string(remaining[1:])
 	}
-	if len(remaining) == 0 && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
-		return m.gameOverView()
-	}
+
+	wpmText := textStyle.Render(strconv.FormatFloat(m.wpm, 'f', 0, 64))
 	text := textBox.Render(ansi.Wordwrap(s, 120, "\n"))
-	textBox := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB, lipgloss.Center, lipgloss.Top, text)
-	return textBox
+	textBox := lipgloss.JoinVertical(lipgloss.Center, text, timeRemaining, wpmText)
+	textView := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB*5, lipgloss.Center, lipgloss.Center, textBox)
+	return textView, m
 }
 
 func homeView(m Model) string {
@@ -322,9 +357,12 @@ func (m Model) settingsUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) gameOverView() string {
-	text := textBox.Render("Finished! \n" +
-		"Your WPM: \nYour accuracy:  \n" +
-		"Press Enter to go Home")
+	m.ChosenView = 4
+
+	results := fmt.Sprintf("Finished!\n"+
+		"WPM: %.1f\n"+
+		"Press Enter To Go Home", m.wpm)
+	text := textBox.Render(results)
 
 	centeredText := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB*8, lipgloss.Center, lipgloss.Center, text)
 	return centeredText
