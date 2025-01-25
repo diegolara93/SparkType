@@ -297,7 +297,9 @@ func typeView(m Model) (string, tea.Model) {
 		s += string(remaining[:1])
 		s += string(remaining[1:])
 	}
-
+	if len(m.TypedKeys) >= 1 {
+		m.wpm = (m.score / charsPerWord) / (time.Since(m.startedTyping).Minutes())
+	}
 	wpmText := textStyle.Render(strconv.FormatFloat(m.wpm, 'f', 0, 64))
 	text := textBox.Render(ansi.Wordwrap(s, 120, "\n"))
 	textBox := lipgloss.JoinVertical(lipgloss.Center, text, timeRemaining, wpmText)
