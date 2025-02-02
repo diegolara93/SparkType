@@ -1,10 +1,11 @@
 package sparktype
 
 import (
-	"SparkType/cmd/models"
+	models "SparkType/cmd"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"os"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func Start() {
