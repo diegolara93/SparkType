@@ -17,10 +17,17 @@ import (
 )
 
 type tickMsg time.Time
+type replayTickMsg time.Time
 
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+func replayTick() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return replayTickMsg(t)
 	})
 }
 
@@ -50,6 +57,12 @@ type typingSettings struct {
 
 const charsPerWord = 5
 
+// keystroke stores timing information for each typed character
+type keystroke struct {
+	char rune
+	time time.Duration // time since start of typing
+}
+
 type Model struct {
 	TextInput          textinput.Model
 	Keys               []rune
@@ -64,6 +77,13 @@ type Model struct {
 	startedTyping      time.Time
 	wpm                float64
 	top10Scores        []float64
+
+	// Replay state
+	keystrokes      []keystroke
+	replayIndex     int
+	replayStartTime time.Time
+	savedTypedKeys  []rune
+	savedKeys       []rune
 }
 type item string
 

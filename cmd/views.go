@@ -12,21 +12,24 @@ import (
 	"github.com/muesli/gamut"
 )
 
-func (m Model) View() string { // TODO: Make this a switch statement else-ifs so ugly
-	if m.ChosenView == 0 { // Home view
-		s := homeView(m)
-		return s
-	} else if m.ChosenView == 1 { // Typing game view
+func (m Model) View() string {
+	switch m.ChosenView {
+	case 0: // Home view
+		return homeView(m)
+	case 1: // Typing game view
 		s, _ := typeView(m)
 		return s
-	} else if m.ChosenView == 2 { // Settings view
+	case 2: // Settings view
 		return m.settingsView()
-	} else if m.ChosenView == 3 {
+	case 3: // Records view
 		return m.recordsView()
-	} else if m.ChosenView == 4 {
+	case 4: // Game over view
 		return m.gameOverView()
+	case 5: // Replay view
+		return m.replayView()
+	default:
+		return "ERROR: unknown view"
 	}
-	return "ERROR: unknown view	"
 }
 
 func homeView(m Model) string {
@@ -93,13 +96,44 @@ func (m Model) settingsView() string {
 }
 
 func (m Model) gameOverView() string {
-	m.ChosenView = 4
-
 	results := fmt.Sprintf("Finished!\n"+
-		"WPM: %.1f\n"+
+		"WPM: %.1f\n\n"+
+		"Press R to Replay\n"+
 		"Press Enter To Go Home", m.wpm)
 	text := textBox.Render(results)
 
 	centeredText := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB*8, lipgloss.Center, lipgloss.Center, text)
 	return centeredText
+}
+
+func (m Model) replayView() string {
+	// Use saved keys for the replay
+	keys := m.savedKeys
+	if len(keys) == 0 {
+		keys = m.Keys
+	}
+
+	remaining := keys[len(m.TypedKeys):]
+	var typed string
+	for i, c := range m.TypedKeys {
+		if i < len(keys) && c == keys[i] {
+			typed += typedText.Render(string(c))
+		} else if i < len(keys) {
+			typed += wrongText.Render(string(keys[i]))
+		}
+	}
+
+	s := typed
+	if len(remaining) > 0 {
+		s += string(remaining[:1])
+		s += string(remaining[1:])
+	}
+
+	replayHeader := textStyle.Render("REPLAY")
+	replayInfo := textStyle.Render("Press Enter or Esc to exit")
+
+	text := textBox.Render(ansi.Wordwrap(s, 120, "\n"))
+	textBox := lipgloss.JoinVertical(lipgloss.Center, replayHeader, text, replayInfo)
+	textView := lipgloss.Place(m.homeScreenMarginLR, m.homeScreenMarginUB*5, lipgloss.Center, lipgloss.Center, textBox)
+	return textView
 }

@@ -18,6 +18,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.recordsUpdate(msg)
 	case 4:
 		return m.gameOverUpdate(msg)
+	case 5:
+		return m.replayUpdate(msg)
 	}
 	return m, nil
 }
@@ -53,6 +55,7 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.startedTyping.IsZero() {
 			m.startedTyping = time.Now()
+			m.keystrokes = []keystroke{} // initialize keystrokes slice
 		}
 		switch msg.String() { // change this to be the typing view update
 
@@ -65,12 +68,22 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		*/
 
 		if len(m.TypedKeys) == len(m.Keys) && m.TypedKeys[len(m.Keys)-1] == m.Keys[len(m.Keys)-1] {
+			// Save data for replay before transitioning
+			m.savedTypedKeys = make([]rune, len(m.TypedKeys))
+			copy(m.savedTypedKeys, m.TypedKeys)
+			m.savedKeys = make([]rune, len(m.Keys))
+			copy(m.savedKeys, m.Keys)
 			m.ChosenView = 4
 			m.TypedKeys = []rune{} // Clear the typed keys after finishing
 			return m, nil
 		}
 		// Deleting characters
 		if msg.Type == tea.KeyBackspace && len(m.TypedKeys) > 0 {
+			// Record backspace in keystrokes
+			m.keystrokes = append(m.keystrokes, keystroke{
+				char: '\b', // backspace marker
+				time: time.Since(m.startedTyping),
+			})
 			m.TypedKeys = m.TypedKeys[:len(m.TypedKeys)-1]
 			return m, nil
 		}
@@ -87,6 +100,11 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Where the next line starts to not break the user interface, even if the user types a random character
 		if next == '\n' {
 			m.TypedKeys = append(m.TypedKeys, next)
+			// Record newline keystroke
+			m.keystrokes = append(m.keystrokes, keystroke{
+				char: next,
+				time: time.Since(m.startedTyping),
+			})
 			if char == ' ' {
 				return m, nil
 			}
@@ -94,6 +112,11 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.TypedKeys) >= 1 {
 			m.wpm = (m.score / charsPerWord) / (time.Since(m.startedTyping).Minutes())
 		}
+		// Record the keystroke with timing
+		m.keystrokes = append(m.keystrokes, keystroke{
+			char: char,
+			time: time.Since(m.startedTyping),
+		})
 		m.TypedKeys = append(m.TypedKeys, msg.Runes...)
 		if char == next {
 			m.score += 1.
@@ -107,6 +130,11 @@ func (m Model) typerUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.TypedKeys) >= 1 {
 			m.timeRemaining -= 1
 			if m.timeRemaining == 0 {
+				// Save data for replay before transitioning
+				m.savedTypedKeys = make([]rune, len(m.TypedKeys))
+				copy(m.savedTypedKeys, m.TypedKeys)
+				m.savedKeys = make([]rune, len(m.Keys))
+				copy(m.savedKeys, m.Keys)
 				m.ChosenView = 4
 				m.TypedKeys = []rune{} // Clear the typed keys after finishing
 				return m, nil
@@ -157,7 +185,60 @@ func (m Model) gameOverUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.ChosenView = 0
 			return m, nil
+		case "r":
+			// Start replay
+			m.ChosenView = 5
+			m.replayIndex = 0
+			m.TypedKeys = []rune{}
+			m.replayStartTime = time.Now()
+			return m, replayTick()
 		}
+	}
+	return m, nil
+}
+
+func (m Model) replayUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "enter", "esc":
+			// Exit replay, go back to game over
+			m.ChosenView = 4
+			m.TypedKeys = []rune{}
+			return m, nil
+		}
+	case tea.WindowSizeMsg:
+		m.homeScreenMarginLR = msg.Width
+		m.homeScreenMarginUB = msg.Height / 8
+		return m, replayTick()
+
+	case replayTickMsg:
+		// Check if replay is complete
+		if m.replayIndex >= len(m.keystrokes) {
+			// Replay finished, go back to game over
+			m.ChosenView = 4
+			m.TypedKeys = []rune{}
+			return m, nil
+		}
+
+		// Check if it's time to show the next keystroke
+		elapsed := time.Since(m.replayStartTime)
+		for m.replayIndex < len(m.keystrokes) && m.keystrokes[m.replayIndex].time <= elapsed {
+			ks := m.keystrokes[m.replayIndex]
+			if ks.char == '\b' {
+				// Handle backspace
+				if len(m.TypedKeys) > 0 {
+					m.TypedKeys = m.TypedKeys[:len(m.TypedKeys)-1]
+				}
+			} else {
+				m.TypedKeys = append(m.TypedKeys, ks.char)
+			}
+			m.replayIndex++
+		}
+
+		return m, replayTick()
 	}
 	return m, nil
 }
